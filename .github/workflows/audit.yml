@@ -1,0 +1,35 @@
+# Scheduled dependency vulnerability scan (pip-audit), kept OFF the per-push/PR blocking path so a
+# transient PyPI-advisory outage never reddens a normal CI run. Complements Dependabot: this
+# detects known CVEs in the locked deps; Dependabot opens the PRs that fix them.
+name: Audit
+
+on:
+  schedule:
+    # Weekly, Monday 07:23 UTC (off the :00 mark to avoid the cron stampede).
+    - cron: "23 7 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: pip-audit
+    runs-on: ubuntu-latest
+    container:
+      image: python:3.13-slim
+    steps:
+      - uses: actions/checkout@v7
+
+      # python:3.13-slim ships without make; `make audit` needs it.
+      - name: Install make
+        run: apt-get update && apt-get install -y --no-install-recommends make
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: make audit
+        run: make audit

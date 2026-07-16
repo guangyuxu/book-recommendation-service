@@ -1,0 +1,119 @@
+# CI: three parallel jobs.
+#   checks  — runs `make ci` (lint + coverage): the SAME command you run locally, the single
+#             ground truth. Only infrastructure that make cannot own lives here (Postgres service,
+#             DB init, uv/cache setup, coverage-artifact upload); every actual check lives in the
+#             Makefile CHECKS section, so CI and local cannot drift.
+#   docker  — image build check.
+#   secrets — gitleaks secret scan (server-side backstop for the pre-commit hook).
+# checks/docker run inside a Python 3.13 container for sandbox isolation.
+# Dependency auditing (pip-audit) is deliberately elsewhere (scheduled audit.yml) so a network /
+# advisory hiccup never blocks a code PR.
+
+name: CI
+
+on:
+  push:
+    branches: ["master", "dev"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Cancel earlier runs on the same branch/PR when a new push arrives.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── 1. Checks (== `make ci`) ─────────────────────────────────────────────────
+  checks:
+    name: Checks (make ci)
+    runs-on: ubuntu-latest
+    container:
+      image: python:3.13-slim
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: ci
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      # unit_tests/conftest.py uses setdefault, so this wins over sqlite:///:memory:
+      # and tests run against real Postgres.
+      BOOK_AGENT_DATABASE_URL: postgresql+psycopg://ci:ci@postgres:5432/ci?options=-csearch_path%3Dbook_agent
+      # Place the uv cache inside the workspace so actions/cache can reach it
+      # from both the runner and the container.
+      UV_CACHE_DIR: ${{ github.workspace }}/.cache/uv
+    steps:
+      - uses: actions/checkout@v7
+
+      # python:3.13-slim ships without make; `make ci` needs it.
+      - name: Install make
+        run: apt-get update && apt-get install -y --no-install-recommends make
+
+      - uses: actions/cache@v6
+        with:
+          path: .cache/uv
+          key: uv-${{ runner.os }}-${{ hashFiles('uv.lock') }}
+          restore-keys: uv-${{ runner.os }}-
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Install dependencies
+        run: uv sync
+
+      # init_db() is idempotent: CREATE SCHEMA IF NOT EXISTS + create_all skips existing tables.
+      - name: Set up database
+        run: uv run python -c "from service.db import init_db; init_db()"
+
+      # THE ground truth: byte-for-byte the same command developers run locally.
+      - name: make ci
+        run: make ci
+
+      # coverage data was produced by `make ci` (its coverage target); emit XML for the artifact.
+      - name: Coverage XML
+        run: uv run coverage xml
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-report
+          path: coverage.xml
+
+  # ── 2. Docker build ──────────────────────────────────────────────────────────
+  docker:
+    name: Docker build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set image tag
+        id: tag
+        run: echo "tag=$(date +%Y%m%d-%H%M%S)" >> $GITHUB_OUTPUT
+
+      - name: Build Docker image
+        run: docker build -t book-recommendation-service:${{ steps.tag.outputs.tag }} .
+
+  # ── 3. Secret scan ───────────────────────────────────────────────────────────
+  # Server-side backstop for the gitleaks pre-commit hook: catches secrets even if a contributor
+  # never ran `pre-commit install`. fetch-depth: 0 so it scans full history on push.
+  # NOTE: gitleaks-action is free for public repos; a private org needs GITLEAKS_LICENSE in env.
+  secrets:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

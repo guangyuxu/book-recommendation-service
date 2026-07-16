@@ -1,0 +1,60 @@
+# --- Dependencies / virtualenvs (must never enter the image; reinstalled inside) ---
+.venv
+venv
+env
+node_modules
+vendor
+
+# --- Secrets / env files: injected at runtime via env_file / Secret, never baked into a layer ---
+.env
+.env.*
+!.env.example
+*.local
+
+# --- git / CI / Docker itself ---
+.git
+.gitignore
+.dockerignore
+.github
+docker-compose.yml
+Dockerfile
+
+# --- Local agent/editor state (never needed at runtime) ---
+.claude
+
+# --- Build artifacts / caches ---
+dist
+build
+*.egg-info
+.cache
+.ruff_cache
+.mypy_cache
+.pytest_cache
+__pycache__
+*.py[cod]
+
+# --- Docs (not needed at runtime) ---
+README.md
+CLAUDE.md
+TODO.md
+LICENSE
+
+# --- Scripts (dev/migration tools, not imported by the app) ---
+scripts
+
+# --- IDE / OS ---
+.vscode
+.idea
+.DS_Store
+Thumbs.db
+
+# --- Tests (dev-only; the runtime app never imports these) ---
+tests
+*.coverage
+.coverage
+coverage
+
+# --- Logs / temp files ---
+*.log
+*.tmp
+*.swp
