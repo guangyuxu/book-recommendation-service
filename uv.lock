@@ -155,7 +155,7 @@ requires-dist = [
 dev = [
     { name = "anyio", specifier = ">=4.14.1" },
     { name = "codespell", specifier = ">=2.4.2" },
-    { name = "coverage", extras = ["toml"], specifier = ">=7.15.0" },
+    { name = "coverage", extras = ["toml"], specifier = ">=7.15.2" },
     { name = "mypy", specifier = ">=2.2.0" },
     { name = "pip-audit", specifier = ">=2.7.3" },
     { name = "pre-commit", specifier = ">=4.0.0" },
