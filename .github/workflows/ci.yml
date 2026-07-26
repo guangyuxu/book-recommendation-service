@@ -32,22 +32,7 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: python:3.13-slim
-    services:
-      postgres:
-        image: postgres:18
-        env:
-          POSTGRES_USER: ci
-          POSTGRES_PASSWORD: ci
-          POSTGRES_DB: ci
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
     env:
-      # unit_tests/conftest.py uses setdefault, so this wins over sqlite:///:memory:
-      # and tests run against real Postgres.
-      BOOK_AGENT_DATABASE_URL: postgresql+psycopg://ci:ci@postgres:5432/ci?options=-csearch_path%3Dbook_agent
       # Place the uv cache inside the workspace so actions/cache can reach it
       # from both the runner and the container.
       UV_CACHE_DIR: ${{ github.workspace }}/.cache/uv
@@ -70,10 +55,8 @@ jobs:
       - name: Install dependencies
         run: uv sync
 
-      # init_db() is idempotent: CREATE SCHEMA IF NOT EXISTS + create_all skips existing tables.
-      - name: Set up database
-        run: uv run python -c "from service.db import init_db; init_db()"
-
+      # No database: the BFF verifies tokens and proxies chat; it holds no DB connection. Tests
+      # mint tokens with an in-process RS256 keypair (see tests/unit_tests/conftest.py).
       # THE ground truth: byte-for-byte the same command developers run locally.
       - name: make ci
         run: make ci

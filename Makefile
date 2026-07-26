@@ -20,7 +20,7 @@
 .PHONY: all \
 	lint_ruff lint_format typecheck spell_check audit test coverage \
 	lint check ci format spell_fix \
-	init-db run help
+	run help
 
 # Default target executed when no arguments are given to make.
 all: help
@@ -35,7 +35,8 @@ all: help
 #
 # Everyday use:  `make check`  (fast, offline: lint + test; lint = ruff + format + mypy + codespell)
 # Before push:   `make ci`     (what GitHub Actions runs verbatim: lint + coverage; fully offline)
-# Tests use sqlite:///:memory: by default; for Postgres set BOOK_AGENT_DATABASE_URL + `make init-db`.
+# No database: the BFF verifies tokens and proxies chat. Tests mint tokens with an in-process
+# RS256 keypair (see tests/unit_tests/conftest.py); nothing here touches Postgres.
 
 CHECK_PATHS = src/ tests/
 
@@ -81,11 +82,8 @@ spell_fix:               ## auto-fix spelling across the repo
 	uv run codespell --skip ./.git --ignore-words .codespellignore -w .
 
 ######################
-# DATABASE / RUN
+# RUN
 ######################
-
-init-db:              ## Create schema + tables (idempotent; requires BOOK_AGENT_DATABASE_URL or .env)
-	uv run python scripts/create_tables.py
 
 run:                  ## Run the API locally (http://localhost:8000/docs)
 	uv run uvicorn service.main:app --reload --host 0.0.0.0 --port 8000
@@ -105,5 +103,4 @@ help:
 	@echo 'spell_check                  - check spelling across the repo'
 	@echo 'spell_fix                    - auto-fix spelling across the repo'
 	@echo 'audit                        - dependency vulnerability scan (pip-audit; needs network)'
-	@echo 'init-db                      - create schema + tables (idempotent; dev/CI setup)'
 	@echo 'run                          - run the API locally with reload'

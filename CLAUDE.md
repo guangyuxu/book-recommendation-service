@@ -1,10 +1,13 @@
 # Project Rules for Claude Code
 
 This is the **pass-through backend (BFF)** in front of the book-recommendation agent. It
-authenticates the caller, derives identity, injects it into the agent run context, streams
-responses back, drives the HITL confirmation flow, and exposes usage/profile HTTP endpoints. It
-shares the agent's Postgres and its DB tooling. The rules below mirror the agent repo so the two
-projects hold one standard.
+**verifies** the caller's access token (RS256, with the accounts service's public key), derives
+identity, injects it into the agent run context, streams responses back, and drives the HITL
+confirmation flow. It **holds no database connection and no private key**: token issuance
+(signup/login) and family/child CRUD live in the sibling **accounts service**
+(`book-recommendation-accounts`); the BFF calls the accounts service when it must confirm a
+client-supplied child belongs to the caller's family. The rules below mirror the sibling repos so
+all projects hold one standard.
 
 ## PII & Security
 
@@ -39,17 +42,17 @@ level). Treat all child/family data as high-sensitivity PII.
 
 ### Authorization rules
 
-- Every repository read that takes a `child_id` or `member_id` **must also filter by
-  `family_id`**. A query scoped only to `child_id` is a cross-family data leak.
-- Any endpoint that acts on a child/member must confirm that child/member belongs to the
-  caller's `family_id` before doing anything.
+- The BFF has no DB; it does not read child/member rows directly. When an endpoint acts on a
+  client-supplied `child_id`, it **must confirm that child belongs to the caller's `family_id`**
+  before injecting it into the agent context — done by asking the accounts service with the
+  caller's own token (which applies the family scope). Never pass a client-supplied id straight
+  through to the agent without that confirmation.
 
 ## Testing rules
 
-- New repository methods that read data must have a cross-family isolation test: seed data
-  under family A, query with family B's id, assert empty result.
 - Endpoints that resolve identity must have a test that a caller cannot reach another family's
-  data by passing a foreign id.
+  data by passing a foreign id (e.g. a foreign `child_id` in a turn → 404, with the accounts
+  ownership check faked).
 
 ## Build & verification
 
