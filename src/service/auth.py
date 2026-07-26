@@ -1,12 +1,14 @@
 """Authentication: resolve the caller's identity, to be injected into the agent run context.
 
-The seam is deliberately pluggable so local and production share ONE code path: a resolver takes
-the request and returns an `Identity`; only the resolver implementation differs.
+The BFF is the token VERIFIER: it derives identity from an access token ISSUED by the accounts
+service (RS256, verified with the accounts service's public key). The seam is pluggable so local
+and production share ONE code path: a resolver takes the request and returns an `Identity`; only
+the resolver implementation differs.
 
 - Dev (`DEV_AUTH=1`): `_dev_identity` returns a fixed identity (the known dev family/member/child).
   For local use only; disabled in any deployed environment.
-- Production (TODO): verify a JWT / session token and derive `family_id` / `family_member_id`
-  from the verified claims. Same `Identity` out, same downstream contract.
+- Otherwise: verify the `Bearer <jwt>` (RS256, public key) and derive `family_id` /
+  `family_member_id` from the verified claims. Same `Identity` out, same downstream contract.
 
 Identity is ALWAYS derived server-side here; it is never read from client-supplied body/query
 params. This service is the authorization gate the agent trusts (see CLAUDE.md).
@@ -16,9 +18,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import jwt
 from fastapi import Depends, Header, HTTPException, status
 
 from .config import Settings, get_settings
+from .security import decode_token
 
 
 @dataclass(frozen=True)
@@ -58,9 +62,32 @@ async def get_identity(
     if settings.dev_auth:
         return _dev_identity(settings)
 
-    # TODO: verify `authorization` (Bearer JWT / session), derive identity from claims.
-    _ = authorization
-    raise HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="authentication not configured; set DEV_AUTH=1 for local development",
-    )
+    return _identity_from_bearer(authorization, settings)
+
+
+def _identity_from_bearer(authorization: str | None, settings: Settings) -> Identity:
+    """Verify a `Bearer <jwt>` header (RS256) and derive identity from the token's claims.
+
+    `family_id` / `family_member_id` come ONLY from the verified token — never from the client's
+    body or query — so this remains the authorization gate the agent trusts (see CLAUDE.md).
+    `child_id` is not carried in the token; the active child is selected and validated per request.
+    """
+    scheme, _, token = (authorization or "").partition(" ")
+    if scheme.lower() != "bearer" or not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="missing or malformed Authorization header",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    try:
+        claims = decode_token(token, settings=settings)
+        return Identity(
+            family_id=str(claims["family_id"]),
+            family_member_id=str(claims["family_member_id"]),
+        )
+    except (jwt.InvalidTokenError, KeyError):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="invalid or expired token",
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from None

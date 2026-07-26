@@ -19,41 +19,46 @@ Legend: `[ ]` todo · `[~]` scaffolded · `[x]` done
 
 ### 1. Auth & identity derivation (ROADMAP B1)
 - [~] Pluggable identity resolver (`service.auth.get_identity`) — dev stub done.
-- [ ] Real token verification (Bearer JWT / session): derive `family_id` / `family_member_id`
-      from verified claims. Never trust client-supplied ids.
-- [ ] Resolve/select active `child_id` (from request or session).
-- [ ] Authorization: confirm the member belongs to the family (this service is the gate).
-- [ ] Local JWT path (self-signed) to exercise the real verify code offline before a real IdP.
+- [x] Real token verification (Bearer JWT / session): derive `family_id` / `family_member_id`
+      from verified claims. Never trust client-supplied ids. (`service.security` + `auth.py`)
+- [~] Resolve/select active `child_id` — accepted per-request (chat body / policy refs) and
+      validated against the family; session-level "active child" selection not persisted yet.
+- [x] Authorization: confirm the member belongs to the family (token-derived; thread ownership
+      checked via thread metadata `family_id`).
+- [x] Local JWT path (self-signed HS256, `JWT_SECRET`) exercises the real verify code offline.
 
 ### 2. Agent invocation / orchestration
-- [ ] LangGraph client (SDK/REST) against `AGENT_URL`: create/continue threads, invoke runs.
-- [ ] Inject `AppContext` (identity → `to_context()`) on every run.
-- [ ] `thread_id` management: map a conversation to a LangGraph thread; persist/lookup.
-- [ ] Pass the user message as input `messages`; track `run_id` / `turn_id`.
+- [x] LangGraph client (`langgraph-sdk`) against `AGENT_URL` (`service.agent_client`):
+      create/continue threads, invoke/resume runs.
+- [x] Inject `AppContext` (identity → `to_context()`) on every run via `context=`.
+- [x] `thread_id` management: a conversation IS a LangGraph thread (create/list/history via SDK).
+- [~] Pass the user message as input `messages`; explicit `run_id` / `turn_id` tracking TBD.
 
 ### 3. Streaming passthrough (SSE)
-- [ ] Consume agent stream (`messages` / `updates` / `custom`) and re-emit as SSE to the frontend.
-- [ ] Forward token stream, per-node `{node, tokens}` usage events, node/status updates.
-- [ ] Client-disconnect handling, heartbeats, backpressure.
+- [x] Consume agent stream (`messages` / `updates` / `custom`) and re-emit as SSE (`routers/chat`).
+- [x] Forward token stream, per-node `{node, tokens}` usage events, node/status updates.
+- [~] Client-disconnect handling + heartbeats done (sse-starlette); backpressure TBD.
 
 ### 4. HITL confirmation flow
-- [ ] Detect `interrupt()` / `confirmation_request` from the run; surface payload to frontend.
-- [ ] Accept Accept/Reject; resume the SAME `thread_id` with `Command(resume=...)`.
+- [x] Detect `interrupt()` / `confirmation_request` (the `__interrupt__` update); surface payload.
+- [x] Accept/Reject; resume the SAME `thread_id` with `command={"resume": ...}`.
 - [ ] Handle pending-confirmation timeout / abandonment.
 
 ### 5. Conversation / thread management
-- [ ] New conversation, fetch history, list conversations.
-- [ ] Map frontend conversation ↔ `thread_id`.
-- [ ] Pass through `child_switch` (frontend avatar swap + undo).
+- [x] New conversation, fetch history, list conversations (SDK; family-scoped by thread metadata).
+- [x] Map frontend conversation ↔ `thread_id` (identity mapping — the thread id is the id).
+- [x] Pass through `child_switch` (forwarded as an `update` SSE event).
 
 ## B. Data & family management (MVP-likely)
 
 ### 6. Family / member / child / reading-profile / policy CRUD
-- [ ] Onboarding + management endpoints (add child, edit profile, set policies) outside a chat turn.
-- [ ] Every read/write scoped by `family_id` (reuse family-scoped repositories).
-- [ ] Decision: **share the agent's ORM models** (import from the agent package as a path/VCS
-      dependency) vs. **duplicate** them here. `service.db.base` mirrors the agent's infra;
-      `service/db/models` is an empty placeholder until this is settled.
+- [x] Signup creates the family + primary member (unique `email` + `password_hash`); onboarding +
+      management endpoints for members / children / reading profiles / policies (`routers/auth`,
+      `routers/family`).
+- [x] Every read/write scoped by `family_id` via family-scoped repositories (`get_in_family`).
+- [x] Decision: **duplicate** the agent's models here (the subset #6 needs), mirroring columns so
+      both services share one `book_agent` schema. `service/db/models` holds family + child models;
+      the agent's auth-less schema is extended with `email`/`password_hash` on `family_member`.
 
 ### 7. Recommendation history / reading tracking
 - [ ] Read `recommendation_session` + items (agent persists these); expose history endpoints.
@@ -73,12 +78,12 @@ Legend: `[ ]` todo · `[~]` scaffolded · `[x]` done
 
 ## D. Cross-cutting / ops
 - [x] Health probe (`/healthz`).
-- [ ] Readiness probe (checks DB / agent reachability).
+- [x] Readiness probe (`/readyz`: checks DB `SELECT 1` + agent `/ok` reachability).
 - [~] CORS (configured from `CORS_ORIGINS`).
-- [ ] PII-safe structured logging (mirror the agent's rules: no PII, exception type only).
-- [ ] Correlation ids; propagate tracing to LangSmith.
-- [ ] Uniform error envelope.
-- [ ] Config/secrets via env / Secrets Manager.
+- [x] PII-safe structured logging (`service.logging`: request-id formatter, exception type only).
+- [~] Correlation ids (`X-Request-Id` middleware, echoed + logged); LangSmith trace propagation TBD.
+- [x] Uniform error envelope (`{"error": {code, message, request_id}}` handlers in `main`).
+- [x] Config/secrets via env (`service.config`; `JWT_SECRET` required outside dev-auth).
 
 ## Later (non-MVP)
 - [ ] Feedback capture (👍/👎, accepted/finished) → ROADMAP #4.
@@ -92,5 +97,6 @@ Legend: `[ ]` todo · `[~]` scaffolded · `[x]` done
 - **DB**: shares the agent's Postgres, same tooling (Advanced Alchemy + SQLAlchemy + psycopg). ✅
 - **Auth (local)**: dev-auth stub (`DEV_AUTH=1`, fixed identity), same resolver seam as prod. ✅
 - **Realtime**: SSE (not WebSocket) for the MVP. (revisit if bidirectional needed)
-- **ORM model sharing**: share vs. duplicate the agent's models — **OPEN** (see #6).
+- **ORM model sharing**: **duplicate** the agent's models here (subset), mirroring columns for one
+  shared `book_agent` schema; `family_member` gains `email`/`password_hash` for signup. ✅ locked.
 - **k8s / deploy infra**: handled separately, later. (intentionally not in this repo yet)

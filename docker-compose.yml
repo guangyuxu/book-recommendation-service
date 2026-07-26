@@ -1,13 +1,13 @@
-# Build and run the BFF locally with docker compose, plus a local Postgres for convenience.
+# Build and run the BFF locally with docker compose.
 #
-# Config comes from .env (copy .env.example -> .env first). When running under compose, point
-# BOOK_AGENT_DATABASE_URL at the `db` service host (see .env.example). The agent runs separately
-# (its own compose / LangGraph server); set AGENT_URL to reach it.
+# The BFF holds no database — it verifies accounts-issued tokens and proxies chat. Config comes
+# from .env (copy .env.example -> .env first). Point AGENT_URL at the LangGraph agent and
+# ACCOUNTS_URL at the accounts service (both run separately), and provide the accounts service's
+# public key via JWT_PUBLIC_KEY / JWT_PUBLIC_KEY_PATH.
 #
 # Usage:
 #   cp .env.example .env
 #   docker compose up --build          # build and start, open http://localhost:8000/docs
-#   docker compose up -d --build       # run in the background
 #   docker compose logs -f service     # follow logs
 #   docker compose down                # stop
 
@@ -22,9 +22,6 @@ services:
       - "8000:8000"          # API + Swagger UI at http://localhost:8000/docs
     env_file:
       - .env
-    depends_on:
-      db:
-        condition: service_healthy
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/healthz').getcode()==200 else 1)\""]
@@ -32,23 +29,3 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
-
-  db:
-    image: postgres:18
-    container_name: book-recommendation-db
-    environment:
-      POSTGRES_USER: book
-      POSTGRES_PASSWORD: book
-      POSTGRES_DB: book
-    ports:
-      - "5432:5432"
-    volumes:
-      - db-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U book"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-volumes:
-  db-data:
