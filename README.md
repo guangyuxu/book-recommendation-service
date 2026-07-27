@@ -44,5 +44,14 @@ src/service/
   agent_client.py   async LangGraph client (chat proxy)
   accounts_client.py async accounts client (child-ownership check)
   routers/chat.py   threads, streaming turns, HITL resume
-tests/              unit tests (mint tokens with an in-process RS256 keypair)
+tests/
+  unit_tests/       offline (tokens minted with an in-process RS256 keypair, agent + accounts
+                    faked); the tree MIRRORS src/service/ — routers/
+  integration_tests/  end-to-end journeys vs the real services, one file per FLOW (empty for now)
 ```
+
+The test layout is the same law in all three service repos (accounts / agent / service): unit tests
+mirror the source tree so a missing mirror directory is a visible coverage gap, while integration
+tests are named after the business journey they walk. `make test` / `make ci` run only `unit_tests`;
+`make integration` runs the journeys — a placeholder here, since exercising the real chain needs the
+whole platform up (that is the `book-recommendation-deploy` repo's job).

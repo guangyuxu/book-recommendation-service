@@ -18,7 +18,7 @@
 # ─────────────────────────────────────────────────────────────────────────────────────
 
 .PHONY: all \
-	lint_ruff lint_format typecheck spell_check audit test coverage \
+	lint_ruff lint_format typecheck spell_check audit test coverage integration \
 	lint check ci format spell_fix \
 	run help
 
@@ -37,6 +37,11 @@ all: help
 # Before push:   `make ci`     (what GitHub Actions runs verbatim: lint + coverage; fully offline)
 # No database: the BFF verifies tokens and proxies chat. Tests mint tokens with an in-process
 # RS256 keypair (see tests/unit_tests/conftest.py); nothing here touches Postgres.
+#
+# TEST LAYOUT (the same law in accounts / agent / service -- see tests/__init__.py):
+#   tests/unit_tests/         fast + offline, tree MIRRORS src/service/ -- the blocking gate
+#                             (`test`/`coverage` scope HERE, so nothing slow can sneak into `ci`).
+#   tests/integration_tests/  end-to-end journeys, organized by FLOW -- `make integration`, opt-in.
 
 CHECK_PATHS = src/ tests/
 
@@ -56,12 +61,17 @@ spell_check:             ## codespell over the repo
 audit:                   ## dependency vulnerability scan (hits the network)
 	uv run pip-audit
 
-test:                    ## pytest suite
-	uv run pytest tests/
+test:                    ## fast unit suite (offline; the gate)
+	uv run pytest tests/unit_tests
 
-coverage:                ## runs the FULL test suite under coverage + report (this is how `make ci` runs tests)
-	uv run coverage run -m pytest tests/
+coverage:                ## runs the unit suite under coverage + report (this is how `make ci` runs tests)
+	uv run coverage run -m pytest tests/unit_tests
 	uv run coverage report
+
+# pytest exits 5 ("no tests ran") on an empty suite; this one is still a placeholder, so treat 5 as
+# a pass. Identical target text in accounts / agent -- see the TEST LAYOUT note above.
+integration:             ## end-to-end journeys vs the real accounts + agent (opt-in; empty for now)
+	@uv run pytest tests/integration_tests; s=$$?; [ $$s -eq 5 ] && exit 0 || exit $$s
 
 # -- composites --
 lint: lint_ruff lint_format typecheck spell_check  ## all static checks: ruff + format + mypy + codespell (fast, offline)
@@ -98,7 +108,8 @@ help:
 	@echo 'ci                           - faithful GitHub CI mirror: lint + coverage (offline)'
 	@echo 'lint                         - static checks: ruff check + ruff format --diff + mypy + codespell'
 	@echo 'format                       - auto-fix formatting + import order'
-	@echo 'test                         - run all tests under tests/'
+	@echo 'test                         - run the fast unit suite (tests/unit_tests, offline)'
+	@echo 'integration                  - run end-to-end journeys (tests/integration_tests; empty for now)'
 	@echo 'coverage                     - run tests with a coverage report'
 	@echo 'spell_check                  - check spelling across the repo'
 	@echo 'spell_fix                    - auto-fix spelling across the repo'
