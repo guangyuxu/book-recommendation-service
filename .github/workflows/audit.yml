@@ -5,8 +5,10 @@ name: Audit
 
 on:
   schedule:
-    # Weekly, Monday 07:23 UTC (off the :00 mark to avoid the cron stampede).
-    - cron: "23 7 * * 1"
+    # Weekly, Monday 07:29 UTC (off the :00 mark to avoid the cron stampede, and off the sibling
+    # repos' minutes -- accounts runs at :23, agent at :17, ui at :37 -- so the four never fire
+    # together).
+    - cron: "29 7 * * 1"
   workflow_dispatch:
 
 permissions:

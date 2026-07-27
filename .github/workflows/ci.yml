@@ -89,6 +89,10 @@ jobs:
   # Server-side backstop for the gitleaks pre-commit hook: catches secrets even if a contributor
   # never ran `pre-commit install`. fetch-depth: 0 so it scans full history on push.
   # NOTE: gitleaks-action is free for public repos; a private org needs GITLEAKS_LICENSE in env.
+  # The scan step is skipped for Dependabot PRs: their GITHUB_TOKEN is read-only and has no access
+  # to repo secrets, so gitleaks-action errors out, and a version-only bump cannot introduce a
+  # secret anyway. The job itself still runs (reports green, satisfying a required check); the
+  # full-history scan on push to master remains the real backstop.
   secrets:
     name: Secret scan (gitleaks)
     runs-on: ubuntu-latest
@@ -97,6 +101,8 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: gitleaks/gitleaks-action@v3
+      - name: gitleaks
+        if: github.actor != 'dependabot[bot]'
+        uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
